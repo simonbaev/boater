@@ -1,9 +1,9 @@
 import Adafruit_CharLCD as LCD
 import threading, time, sys
 
-class Assassin(threading):
+class Assassin(threading.Thread):
     def __init__(self, Worker):
-        threading.Thread(self,name='Assassin')
+        threading.Thread.__init__(self, name = 'Assassin')
         self.lcd = LCD.Adafruit_CharLCDPlate()
         self.Worker = Worker
     def run(self):
@@ -15,7 +15,9 @@ class Assassin(threading):
             else:
                 wdTimer = 0
             if wdTimer > 5:
-                print >> sys.stderr, 'Boo!'
+                wdTimer = 0
+                print >> sys.stderr, 'Worker thread gets restarted...'
+                self.Worker._Thread__stop()
 
 
 

@@ -30,6 +30,7 @@ class Worker(threading.Thread):
         self.lcd.clear()
         self.lcd.set_color(1.0, 1.0, 1.0)
         self.lcd.message('    Welcome    \nto Boater kiosk')
+        time.sleep(2)
 
     def getBytes(self, nBytes=None):
         """
@@ -82,30 +83,33 @@ class Worker(threading.Thread):
         }
 
     def run(self):
-        time.sleep(1)
-        self.lcd.clear()
-        offsetLength = 0
-        progTemp = '>>>'
-        self.lcd.message(' Slide the card ')
-        cardDataString = None
         while True:
-            if self.ser.inWaiting() > 0:
-                time.sleep(0.5)
-                cardDataString = self.ser.read(self.ser.inWaiting()).lstrip('%B').rsplit('?')[0]
-                break
-            else:
-                progString = "%-14s" % ((' ' * offsetLength) + progTemp)
-                self.lcd.set_cursor(1,1)
-                for c in  progString:
-                    self.lcd.write8(ord(c), True)
-                offsetLength = (offsetLength + 1) % (14 - len(progTemp) + 1)
-                time.sleep(0.1)
-        #-- Parse card data string
-        cardData = self.cardStringParser(cardDataString)
-        print cardData['fmtLogData']
-        #-- Display card info on LCD
-        self.lcd.set_cursor(0,0)
-        self.lcd.message(cardData['fmtLCDData'])
-        if cardData['cardValid'] == False:
-            self.lcd.set_color(1,0,0)
+            self.lcd.clear()
+            offsetLength = 0
+            progTemp = '>>>'
+            self.lcd.message(' Slide the card ')
+            cardDataString = None
+            while True:
+                if self.ser.inWaiting() > 0:
+                    time.sleep(0.5)
+                    cardDataString = self.ser.read(self.ser.inWaiting()).lstrip('%B').rsplit('?')[0]
+                    break
+                else:
+                    progString = "%-14s" % ((' ' * offsetLength) + progTemp)
+                    self.lcd.set_cursor(1,1)
+                    for c in  progString:
+                        self.lcd.write8(ord(c), True)
+                    offsetLength = (offsetLength + 1) % (14 - len(progTemp) + 1)
+                    time.sleep(0.1)
+            #-- Parse card data string
+            cardData = self.cardStringParser(cardDataString)
+            print cardData['fmtLogData']
+            #-- Display card info on LCD
+            self.lcd.set_cursor(0,0)
+            self.lcd.message(cardData['fmtLCDData'])
+            if cardData['cardValid'] == False:
+                self.lcd.set_color(1,0,0)
+                time.sleep(3.0)
+                self.lcd.set_color(1,1,1)
+                continue
 
