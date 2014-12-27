@@ -41,6 +41,46 @@ class runner(threading.Thread):
             return self.ser.read(inWaiting)
         else:
             return self.ser.read(nBytes)
+    def cardStringParser(self, rawData):
+        # Sanity check
+        if rawData == None:
+            return None
+        # Tokenize raw data
+        cardDataTokens = rawData.split('^',3)
+        #-- Card number
+        cardNumber = re.sub('[^0-9]','',cardDataTokens[0].strip())
+        #-- Card owner
+        try:
+            cardOwner = cardDataTokens[1].strip().replace('/',' ')
+        except:
+            cardOwner = 'N/A'
+        #-- Card expiration date
+        try:
+            tmp = cardDataTokens[2].strip()[0:4]
+            cardExpDate = tmp[2:] + '/' + tmp[:2]
+        except:
+            cardExpDate = 'N/A'
+        #-- Card data validation
+        try:
+            cardObject = pycard.Card(number=cardNumber,month=int(cardExpDate[:2]),year=int('20'+cardExpDate[3:]),cvc='')
+            cardValid = cardObject.is_valid
+            cardType = cardObject.brand.capitalize()
+        except:
+            cardType = 'N/A'
+            cardValid = False
+            cardObject = None
+        #-- Format return value using dict
+        return {
+            'fmtLogData' : '%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n' % ('Number:',cardNumber,'Owner:',cardOwner,'Expiration date:',cardExpDate,'Type',cardType,'Valid:',cardValid),
+            'fmtLCDData' : '%-7sXXXX-%s\n%-11s%5s' % (cardType[:4],cardNumber[-4:],'Exp.Date',cardExpDate),
+            'rawData' : rawData,
+            'cardNumber' : cardNumber,
+            'cardOwner' : cardOwner,
+            'cardExpDate' : cardExpDate,
+            'cardObject' : cardObject,
+            'cardValid' : cardValid,
+            'cardType' : cardType
+        }
 
     def run(self):
         time.sleep(1)
@@ -48,6 +88,7 @@ class runner(threading.Thread):
         offsetLength = 0
         progTemp = '>>>'
         self.lcd.message(' Slide the card ')
+        cardDataString = None
         while True:
             if self.ser.inWaiting() > 0:
                 time.sleep(0.5)
@@ -60,29 +101,14 @@ class runner(threading.Thread):
                     self.lcd.write8(ord(c), True)
                 offsetLength = (offsetLength + 1) % (14 - len(progTemp) + 1)
                 time.sleep(0.1)
-        cardDataTokens = cardDataString.split('^',3)
-        #-- Card number
-        cardNumber = re.sub('[^0-9]','',cardDataTokens[0].strip())
-        #-- Card owner
-        try:
-            cardOwner = cardDataTokens[1].strip().replace('/',' ')
-        except:
-            cardOwner = 'N/A'
-        #-- Card expiration date
-        try:
-            cardExpDate = cardDataTokens[2].strip()[0:4]
-        except:
-            cardExpDate = 'N/A'
-        #-- Card data validation
-        try:
-            cardObject = pycard.Card(number=cardNumber,month=int(cardExpDate[2:]),year=int('20'+cardExpDate[0:2]),cvc='')
-            cardValid = cardObject.is_valid
-            cardType = cardObject.brand.capitalize()
-        except:
-            cardType = 'N/A'
-            cardValid = False
-        #-- Report
-        print '%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n' % ('Number:',cardNumber,'Owner:',cardOwner,'Expiration date:',cardExpDate,'Type',cardType,'Valid:',cardValid)
+        #-- Parse card data string
+        cardData = self.cardStringParser(cardDataString)
+        print cardData['fmtLogData']
+        #-- Display card info on LCD
+        self.lcd.set_cursor(0,0)
+        self.lcd.message(cardData['fmtLCDData'])
+        if cardData['cardValid'] == False:
+            self.lcd.set_color(1,0,0)
 
 if __name__ == '__main__':
     runner().start()
