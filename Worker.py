@@ -25,10 +25,24 @@ class Worker(threading.Thread):
         except Exception, reason:
             print >> sys.stderr, 'Cannot open communication port for card reader: %s' % reason
             sys.exit(1)
+        # Relay board pins
+        GPIO.setmode(GPIO.BOARD)
+        self.relayList = [11,12,13,15,16,18,22,7,31,32,33,35,36,37,38,40]
+        GPIO.setup(self.relayList,GPIO.IN)
         # Initialize LCD plate
         self.lcd = LCD.Adafruit_CharLCDPlate()
-        self.lcd.clear()
+        # Default colors
         self.lcd.set_color(1.0, 1.0, 1.0)
+        # Up
+        self.lcd.create_char(1, [0,0,4,14,31,0,0,0])
+        # Down
+        self.lcd.create_char(2, [0,0,31,14,4,0,0,0])
+        # Left
+        self.lcd.create_char(3, [1,3,7,15,15,7,3,1])
+        # Right
+        self.lcd.create_char(4, [16,24,28,30,30,28,24,16])
+        #-- Welcome message
+        self.lcd.clear()
         self.lcd.message('    Welcome    \nto Boater kiosk')
         time.sleep(2)
 
@@ -41,6 +55,8 @@ class Worker(threading.Thread):
             return self.ser.read(inWaiting)
         else:
             return self.ser.read(nBytes)
+    def none2text(self, str = None):
+        return 'N/A' if str == None else str
     def cardStringParser(self, rawData):
         # Sanity check
         if rawData == None:
@@ -53,26 +69,42 @@ class Worker(threading.Thread):
         try:
             cardOwner = cardDataTokens[1].strip().replace('/',' ')
         except:
-            cardOwner = 'N/A'
+            cardOwner = None
         #-- Card expiration date
         try:
             tmp = cardDataTokens[2].strip()[0:4]
             cardExpDate = tmp[2:] + '/' + tmp[:2]
         except:
-            cardExpDate = 'N/A'
+            cardExpDate = None
         #-- Card data validation
         try:
             cardObject = pycard.Card(number=cardNumber,month=int(cardExpDate[:2]),year=int('20'+cardExpDate[3:]),cvc='')
             cardValid = cardObject.is_valid
             cardType = cardObject.brand.capitalize()
         except:
-            cardType = 'N/A'
+            cardType = None
             cardValid = False
             cardObject = None
         #-- Format return value using dict
         return {
-            'fmtLogData' : '%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n' % ('Number:',cardNumber,'Owner:',cardOwner,'Expiration date:',cardExpDate,'Type',cardType,'Valid:',cardValid),
-            'fmtLCDData' : '%-7sXXXX-%s\n%-11s%5s' % (cardType[:4],cardNumber[-4:],'Exp.Date',cardExpDate),
+            'fmtLogData' : '%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n%-20s%s\n' % (
+                'Number:',
+                cardNumber,
+                'Owner:',
+                'N/A' if cardOwner == None else cardOwner,
+                'Expiration date:',
+                'N/A' if cardExpDate == None else cardExpDate,
+                'Type',
+                'N/A' if cardType == None else cardType,
+                'Valid:',
+                cardValid
+            ),
+            'fmtLCDData' : '%-7sXXXX-%s\n%-11s%5s' % (
+                'N/A' if cardType == None else cardType[:6],
+                cardNumber[-4:],
+                'Exp.Date',
+                'N/A' if cardExpDate == None else cardExpDate
+            ),
             'rawData' : rawData,
             'cardNumber' : cardNumber,
             'cardOwner' : cardOwner,
@@ -81,7 +113,6 @@ class Worker(threading.Thread):
             'cardValid' : cardValid,
             'cardType' : cardType
         }
-
     def run(self):
         while True:
             self.lcd.clear()
@@ -109,7 +140,29 @@ class Worker(threading.Thread):
             self.lcd.message(cardData['fmtLCDData'])
             if cardData['cardValid'] == False:
                 self.lcd.set_color(1,0,0)
-                time.sleep(3.0)
+                time.sleep(5.0)
                 self.lcd.set_color(1,1,1)
                 continue
+            time.sleep(1.0)
+            #-- Select the locker
+            self.lcd.clear()
+            self.lcd.set_cursor(0,0)
+            self.lcd.message(' Select locker ')
+            lockID = 0
+            mod = len(self.relayList)
+            while True:
+                self.lcd.set_cursor(0,1)
+                self.lcd.message('     \x03 %02d \x04     ' % (lockID + 1))
+                if self.lcd.is_pressed(LCD.LEFT) or self.lcd.is_pressed(LCD.DOWN):
+                    lockID = (lockID - 1 + mod) % mod
+                elif self.lcd.is_pressed(LCD.RIGHT) or self.lcd.is_pressed(LCD.UP):
+                    lockID = (lockID + 1) % mod
+                elif self.lcd.is_pressed(LCD.SELECT):
+                     break
+                time.sleep(0.04)
+            GPIO.setup(self.relayList[lockID],GPIO.OUT)
+            time.sleep(3.0)
+            GPIO.setup(self.relayList[lockID],GPIO.IN)
+
+
 
