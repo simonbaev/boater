@@ -1,1 +1,27 @@
-/etc/init.d/boater
+### BEGIN INIT INFO
+# Provides: Boater kiosk interface
+# Required-Start: $remote_fs $syslog
+# Required-Stop: $remote_fs $syslog
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Boater Kiosk Application Starter
+# Description: 
+### END INIT INFO
+#! /bin/sh
+# /etc/init.d/boater
+case "$1" in
+start)
+	echo "Starting Boater"
+	python /home/pi/Projects/Kiosk/Runner.py
+	;;
+stop)
+	echo "Stopping Boater"
+	BOATER_PID=$(ps wwwaux | grep "Runner.py$" | awk '{print $2}')
+	kill -9 $BOATER_PID
+	;;
+*)
+	echo "Usage: /etc/init.d/boater {start|stop}"
+	exit 1
+	;;
+esac
+exit 0
