@@ -15,6 +15,7 @@ class Worker:
     def __init__(self, port=None):
         # Register signal/interrupt handling
         signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGUSR1, self.signal_handler)
         # Serial port name
         if port == None:
             self.readerPort = '/dev/ttyUSB0'
@@ -48,8 +49,8 @@ class Worker:
         self.lcd.message('    Welcome    \nto Boater kiosk')
         time.sleep(2)
 
-    def signal_handler(self, signal, frame):
-        raise ExitCommand()
+    def signal_handler(self, signum, frame):
+        raise ExitCommand(signum)
 
     def getBytes(self, nBytes=None):
         """
@@ -168,14 +169,18 @@ class Worker:
                 time.sleep(3.0)
                 GPIO.setup(self.relayList[lockID],GPIO.IN)
 
-        except ExitCommand:
-            pass
-        finally:
-            print >> sys.stderr, 'Worker gets terminated...'
+        except ExitCommand, reason:
+            time.sleep(1)
             self.lcd.clear()
             self.lcd.set_cursor(0,0)
             self.lcd.set_color(1,0,0)
-            self.lcd.message("Terminated...")
+            if int(str(reason)) == signal.SIGINT:
+                print >> sys.stderr, 'Worker gets terminated...'
+                self.lcd.message("Terminated...")
+            else:
+                print >> sys.stderr, 'RasPI gets rebooted...'
+                self.lcd.message("Rebooting...")
+                os.system('reboot')
             time.sleep(1)
 
 
