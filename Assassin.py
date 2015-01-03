@@ -1,5 +1,5 @@
 import Adafruit_CharLCD as LCD
-import threading, time, sys, os, signal
+import threading, time, os, signal, sys
 
 class Assassin(threading.Thread):
     def __init__(self, Worker):
@@ -8,14 +8,19 @@ class Assassin(threading.Thread):
         self.daemon = True
     def run(self):
         wdTimer = 0
-        while True:
-            time.sleep(0.5)
-            if self.Worker.lcd.is_pressed(LCD.SELECT):
-                wdTimer += 1
-            else:
-                wdTimer = 0
-            if wdTimer > 5:
-                os.kill(os.getpid(), signal.SIGINT)
+        try:
+            while True:
+                time.sleep(0.5)
+                if self.Worker and self.Worker.lcd.is_pressed(LCD.SELECT):
+                    wdTimer += 1
+                else:
+                    wdTimer = 0
+                if wdTimer > 5:
+                    os.kill(os.getpid(), signal.SIGINT)
+        except:
+            pass
+        finally:
+            print >> sys.stderr, 'Bla-Bla-Bla'
 
 
 

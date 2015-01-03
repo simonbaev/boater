@@ -174,6 +174,7 @@ class Worker:
             print >> sys.stderr, 'Worker gets terminated...'
             self.lcd.clear()
             self.lcd.set_cursor(0,0)
+            self.lcd.set_color(1,0,0)
             self.lcd.message("Terminated...")
             time.sleep(1)
 
