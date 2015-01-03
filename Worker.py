@@ -3,16 +3,18 @@ import Adafruit_CharLCD as LCD
 import serial
 import pycard
 import re
-import threading, sys, time
+import sys, time, os, signal
 
-class Worker(threading.Thread):
+class ExitCommand(Exception):
+    pass
+
+class Worker:
     """
     Default constructor that initializes serial port and LCD display
     """
-
     def __init__(self, port=None):
-        # Call to constructor of superclass
-        threading.Thread.__init__(self, name='Worker')
+        # Register signal/interrupt handling
+        signal.signal(signal.SIGINT, self.signal_handler)
         # Serial port name
         if port == None:
             self.readerPort = '/dev/ttyUSB0'
@@ -46,6 +48,9 @@ class Worker(threading.Thread):
         self.lcd.message('    Welcome    \nto Boater kiosk')
         time.sleep(2)
 
+    def signal_handler(self, signal, frame):
+        raise ExitCommand()
+
     def getBytes(self, nBytes=None):
         """
         Returns all data in waiting from the open serial port
@@ -55,8 +60,6 @@ class Worker(threading.Thread):
             return self.ser.read(inWaiting)
         else:
             return self.ser.read(nBytes)
-    def none2text(self, str = None):
-        return 'N/A' if str == None else str
     def cardStringParser(self, rawData):
         # Sanity check
         if rawData == None:
@@ -113,56 +116,66 @@ class Worker(threading.Thread):
             'cardValid' : cardValid,
             'cardType' : cardType
         }
-    def run(self):
-        while True:
-            self.lcd.clear()
-            offsetLength = 0
-            progTemp = '>>>'
-            self.lcd.message(' Slide the card ')
-            cardDataString = None
+    def doIt(self):
+        try:
             while True:
-                if self.ser.inWaiting() > 0:
-                    time.sleep(0.5)
-                    cardDataString = self.ser.read(self.ser.inWaiting()).lstrip('%B').rsplit('?')[0]
-                    break
-                else:
-                    progString = "%-14s" % ((' ' * offsetLength) + progTemp)
-                    self.lcd.set_cursor(1,1)
-                    for c in  progString:
-                        self.lcd.write8(ord(c), True)
-                    offsetLength = (offsetLength + 1) % (14 - len(progTemp) + 1)
-                    time.sleep(0.1)
-            #-- Parse card data string
-            cardData = self.cardStringParser(cardDataString)
-            print cardData['fmtLogData']
-            #-- Display card info on LCD
-            self.lcd.set_cursor(0,0)
-            self.lcd.message(cardData['fmtLCDData'])
-            if cardData['cardValid'] == False:
-                self.lcd.set_color(1,0,0)
-                time.sleep(5.0)
-                self.lcd.set_color(1,1,1)
-                continue
-            time.sleep(1.0)
-            #-- Select the locker
+                self.lcd.clear()
+                offsetLength = 0
+                progTemp = '>>>'
+                self.lcd.message(' Slide the card ')
+                cardDataString = None
+                while True:
+                    if self.ser.inWaiting() > 0:
+                        time.sleep(0.5)
+                        cardDataString = self.ser.read(self.ser.inWaiting()).lstrip('%B').rsplit('?')[0]
+                        break
+                    else:
+                        progString = "%-14s" % ((' ' * offsetLength) + progTemp)
+                        self.lcd.set_cursor(1,1)
+                        for c in  progString:
+                            self.lcd.write8(ord(c), True)
+                        offsetLength = (offsetLength + 1) % (14 - len(progTemp) + 1)
+                        time.sleep(0.1)
+                #-- Parse card data string
+                cardData = self.cardStringParser(cardDataString)
+                print cardData['fmtLogData']
+                #-- Display card info on LCD
+                self.lcd.set_cursor(0,0)
+                self.lcd.message(cardData['fmtLCDData'])
+                if cardData['cardValid'] == False:
+                    self.lcd.set_color(1,0,0)
+                    time.sleep(5.0)
+                    self.lcd.set_color(1,1,1)
+                    continue
+                time.sleep(3.0)
+                #-- Select the locker
+                self.lcd.clear()
+                self.lcd.set_cursor(0,0)
+                self.lcd.message(' Select locker ')
+                lockID = 0
+                mod = len(self.relayList)
+                while True:
+                    self.lcd.set_cursor(0,1)
+                    self.lcd.message('     \x03 %02d \x04     ' % (lockID + 1))
+                    if self.lcd.is_pressed(LCD.LEFT) or self.lcd.is_pressed(LCD.DOWN):
+                        lockID = (lockID - 1 + mod) % mod
+                    elif self.lcd.is_pressed(LCD.RIGHT) or self.lcd.is_pressed(LCD.UP):
+                        lockID = (lockID + 1) % mod
+                    elif self.lcd.is_pressed(LCD.SELECT):
+                         break
+                    time.sleep(0.04)
+                GPIO.setup(self.relayList[lockID],GPIO.OUT)
+                time.sleep(3.0)
+                GPIO.setup(self.relayList[lockID],GPIO.IN)
+
+        except ExitCommand:
+            pass
+        finally:
+            print >> sys.stderr, 'Worker gets terminated...'
             self.lcd.clear()
             self.lcd.set_cursor(0,0)
-            self.lcd.message(' Select locker ')
-            lockID = 0
-            mod = len(self.relayList)
-            while True:
-                self.lcd.set_cursor(0,1)
-                self.lcd.message('     \x03 %02d \x04     ' % (lockID + 1))
-                if self.lcd.is_pressed(LCD.LEFT) or self.lcd.is_pressed(LCD.DOWN):
-                    lockID = (lockID - 1 + mod) % mod
-                elif self.lcd.is_pressed(LCD.RIGHT) or self.lcd.is_pressed(LCD.UP):
-                    lockID = (lockID + 1) % mod
-                elif self.lcd.is_pressed(LCD.SELECT):
-                     break
-                time.sleep(0.04)
-            GPIO.setup(self.relayList[lockID],GPIO.OUT)
-            time.sleep(3.0)
-            GPIO.setup(self.relayList[lockID],GPIO.IN)
+            self.lcd.message("Terminated...")
+            time.sleep(1)
 
 
 
