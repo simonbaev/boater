@@ -1,11 +1,18 @@
+import re
+import sys
+import time
+import os
+import signal
+import urllib2
+from datetime import date
+import logging
+
 import RPi.GPIO as GPIO
 import Adafruit_CharLCD as LCD
 import paypalrestsdk
 import serial
 import pycard
-import re
-import sys, time, os, signal
-import urllib2
+
 
 class ExitCommand(Exception):
     pass
@@ -15,8 +22,14 @@ class Worker:
     Default constructor that initializes serial port and LCD display
     """
     def __init__(self, port=None):
-        # Class variables
-        self.debugFlag = True
+        # Debugging & logging
+        self.debugFlag = False
+        logging.basicConfig(
+            format='%(levelname)s @ %(asctime)s: %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p',
+            level=logging.INFO,
+            filename='Boater_%s.log' % date.today().strftime("%m%d%y")
+        )
         # Register signal/interrupt handling
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGUSR1, self.signal_handler)
@@ -24,6 +37,7 @@ class Worker:
         try:
             self.initLCD()
         except Exception, reason:
+            logging.error('Cannot initialize LCD plate\n---')
             if self.debugFlag:
                 print >> sys.stderr, "Cannot initialize LCD plate: %s" % reason
             sys.exit(1)
@@ -31,6 +45,7 @@ class Worker:
         try:
             self.initGPIO()
         except Exception, reason:
+            logging.error('Cannot initialize GPIO ports\n---')
             if self.debugFlag:
                 print >> sys.stderr, "Cannot initialize GPIO ports: %s" % reason
             sys.exit(2)
@@ -38,32 +53,36 @@ class Worker:
         try:
             self.initUART(port)
         except Exception, reason:
+            logging.error('Cannot initialize communication port for card reader\n---')
             if self.debugFlag:
                 print >> sys.stderr, "Cannot open communication port for card reader: %s" % reason
             self.lcd.set_color(1, 0, 0)
-            self.printLCD(0, 'c', "Card Reader")
-            self.printLCD(1, 'c', "Failure")
+            self.printLCD(0, 'c', "Card reader")
+            self.printLCD(1, 'c', "failure")
             time.sleep(1.0)
             sys.exit(3)
         # Initialize PayPal interface
         try:
             self.initPayPal()
         except Exception, reason:
+            logging.error('Cannot connect to PayPal\n---')
             if self.debugFlag:
                 print >> sys.stderr, "Cannot connect to PayPal: %s" % reason
             self.lcd.set_color(1, 0, 0)
             self.printLCD(0, 'c', "PayPal interface")
-            self.printLCD(1, 'c', "Failure")
+            self.printLCD(1, 'c', "failure")
             time.sleep(1.0)
             sys.exit(4)
+        # Record into log
+        logging.info('Boater started')
         # Welcome message
+        self.lcd.set_color(1.0, 1.0, 1.0)
         self.printLCD(0, 'c', "Welcome")
         self.printLCD(1, 'c', "To Boater Kiosk")
 
     def initLCD(self):
         # Initialize LCD plate
         self.lcd = LCD.Adafruit_CharLCDPlate()
-        self.lcd.set_color(1.0, 1.0, 1.0)
         # Up character
         self.lcd.create_char(1, [0, 0, 4, 14, 31, 0, 0, 0])
         # Down character
@@ -80,7 +99,7 @@ class Worker:
 
     def initUART(self, port):
         # Serial port name
-        if port == None:
+        if port is None:
             self.readerPort = '/dev/ttyUSB0'
         else:
             self.readerPort = port
@@ -93,7 +112,7 @@ class Worker:
 
     def initPayPal(self):
         try:
-            urllib2.urlopen('https://paypal.com',timeout=5)
+            urllib2.urlopen('https://developer.paypal.com',timeout=5)
             paypalrestsdk.configure({
                 'mode':             'sandbox',
                 'client_id':        'AQvHZBAWpd-nwPq9dBf92g7x9Rb7Qnu-c6HvMlUtG3YJ4Dk9SKLBMGRjs3KK',
@@ -120,7 +139,7 @@ class Worker:
 
     def cardStringParser(self, rawData):
         # Sanity check
-        if rawData == None:
+        if rawData is None:
             return None
         # Tokenize raw data
         cardDataTokens = rawData.split('^', 3)
@@ -139,10 +158,14 @@ class Worker:
             cardExpDate = None
         #-- Card data validation
         try:
-            cardObject = pycard.Card(number=cardNumber, month=int(cardExpDate[:2]), year=int('20' + cardExpDate[3:]),
-                                     cvc='')
+            cardObject = pycard.Card(
+                number=cardNumber,
+                month=int(cardExpDate[:2]),
+                year=int('20' + cardExpDate[3:]),
+                cvc=''
+            )
             cardValid = cardObject.is_valid
-            cardType = cardObject.brand.capitalize()
+            cardType = cardObject.brand
         except:
             cardType = None
             cardValid = False
@@ -153,19 +176,19 @@ class Worker:
                 'Number:',
                 cardNumber,
                 'Owner:',
-                'N/A' if cardOwner == None else cardOwner,
+                'N/A' if cardOwner is None else cardOwner,
                 'Expiration date:',
-                'N/A' if cardExpDate == None else cardExpDate,
+                'N/A' if cardExpDate is None else cardExpDate,
                 'Type',
-                'N/A' if cardType == None else cardType,
+                'N/A' if cardType is None else cardType.capitalize(),
                 'Valid:',
                 cardValid
             ),
             'fmtLCDData': '%-7sXXXX-%s\n%-11s%5s' % (
-                'N/A' if cardType == None else cardType[:6],
+                'N/A' if cardType is None else cardType[:6].capitalize(),
                 cardNumber[-4:],
                 'Exp.Date',
-                'N/A' if cardExpDate == None else cardExpDate
+                'N/A' if cardExpDate is None else cardExpDate
             ),
             'rawData': rawData,
             'cardNumber': cardNumber,
@@ -198,17 +221,73 @@ class Worker:
                         time.sleep(0.1)
                 # -- Parse card data string
                 cardData = self.cardStringParser(cardDataString)
+                logging.info('Card swiped: %s', cardData['fmtLCDData'].replace('\n',' -- '))
                 if self.debugFlag:
                     print cardData['fmtLogData']
                 #-- Display card info on LCD
                 self.lcd.set_cursor(0, 0)
                 self.lcd.message(cardData['fmtLCDData'])
                 if cardData['cardValid'] == False:
+                    logging.error('Swiped card is invalid')
                     self.lcd.set_color(1, 0, 0)
                     time.sleep(5.0)
                     self.lcd.set_color(1, 1, 1)
                     continue
-                time.sleep(3.0)
+                #-- Run PayPal transaction
+                nameArray = cardData['cardOwner'].split()
+                if len(nameArray) > 0:
+                    lastName = nameArray[0]
+                    firstName = ' '.join(nameArray[1:])
+                else:
+                    lastName = 'N/A'
+                    firstName = 'N/A'
+                payment = paypalrestsdk.Payment({
+                    "intent": "sale",
+                    "payer": {
+                        "payment_method": "credit_card",
+                        "funding_instruments": [{
+                            "credit_card": {
+                                "type": cardData['cardType'],
+                                "number": cardData['cardNumber'],
+                                "expire_month": cardData['cardObject'].exp_date.mm,
+                                "expire_year": cardData['cardObject'].exp_date.yyyy,
+                                "first_name": firstName,
+                                "last_name": lastName
+                            }
+                        }]
+                    },
+                    "transactions": [{
+                        "amount": {
+                            "total": "0.01",
+                            "currency": "USD"
+                        },
+                        "custom": "Boater kiosk on %s" % date.today().strftime("%d/%m/%y")
+                    }]
+                })
+                #-- Handling payment error
+                errorFlag = False
+                errorMessage = ""
+                try:
+                    if payment.create():
+                        logging.info('PayPal payment went through: %s', payment.id)
+                        if self.debugFlag:
+                            print "Payment[%s] created successfully" % (payment.id)
+                    else:
+                        errorFlag = True
+                        errorMessage = payment.error[u'details'][0]
+                except Exception, reason:
+                    errorFlag = True
+                    errorMessage = reason
+                if errorFlag:
+                    logging.error('PayPal payment failed: %s', errorMessage)
+                    if self.debugFlag:
+                        print >> sys.stderr, "Payment failed: %s" % (errorMessage)
+                    self.lcd.set_color(1, 0, 0)
+                    self.printLCD(0,'c','PayPal')
+                    self.printLCD(1,'c','payment failed')
+                    time.sleep(3.0)
+                    self.lcd.set_color(1, 1, 1)
+                    continue
                 #-- Select the locker
                 self.lcd.clear()
                 self.lcd.set_cursor(0, 0)
@@ -226,28 +305,35 @@ class Worker:
                         break
                     time.sleep(0.04)
                 GPIO.setup(self.relayList[lockID], GPIO.OUT)
+                logging.info('Locker %d unlocked', lockID + 1)
                 time.sleep(3.0)
                 GPIO.setup(self.relayList[lockID], GPIO.IN)
+                logging.info('Locker %d locked', lockID + 1)
 
         except ExitCommand, reason:
             time.sleep(1)
             self.lcd.clear()
             self.lcd.set_color(1, 0, 0)
             if int(str(reason)) == signal.SIGINT:
+                logging.info('Terminated by user\n---')
                 if self.debugFlag:
-                    print >> sys.stderr, "Worker gets terminated..."
+                    print >> sys.stderr, "Terminated by user..."
                 self.printLCD(0, 'c', "Terminated")
                 self.printLCD(1)
                 time.sleep(1)
                 sys.exit(100)
             else:
+                logging.info('RasPi gets rebooted\n---')
                 if self.debugFlag:
                     print >> sys.stderr, "RasPI gets rebooted..."
-                self.printLCD(0, 'c', "Rebooting")
+                self.printLCD(0, 'c', "Rebooting...")
                 self.printLCD(1)
                 time.sleep(1)
                 os.system('reboot')
 
+        except Exception, reason:
+            if self.debugFlag:
+                print >> sys.stderr, "Some other exception: %s..." % (reason)
 
 
 

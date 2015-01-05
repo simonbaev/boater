@@ -7,7 +7,7 @@ if __name__ == '__main__':
     W = Worker.Worker()
     Assassin.Assassin(W).start()
     # Wait for LCD screen to settle down
-    time.sleep(3)
+    time.sleep(1)
     # Run main loop
     W.doIt()
 

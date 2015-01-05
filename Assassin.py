@@ -10,7 +10,7 @@ class Assassin(threading.Thread):
         terminateTimer = 0
         rebootTimer = 0
         while True:
-            time.sleep(0.5)
+            time.sleep(1.0)
             # Control Termination timer
             if self.Worker and self.Worker.lcd.is_pressed(LCD.SELECT):
                 terminateTimer += 1
@@ -22,10 +22,10 @@ class Assassin(threading.Thread):
             else:
                 rebootTimer = 0
             # Terminate if needed
-            if terminateTimer > 10:
+            if terminateTimer > 5:
                 os.kill(os.getpid(), signal.SIGINT)
                 break
             # Reboot if needed
-            if rebootTimer > 10:
+            if rebootTimer > 5:
                 os.kill(os.getpid(), signal.SIGUSR1)
                 break
